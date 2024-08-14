@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <leif/leif.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define WIN_MARGIN 20.0f
 
@@ -18,26 +19,28 @@ typedef enum {
   FILTER_LOW,
   FILTER_MEDIUM,
   FILTER_HIGH
-} entry_filter;
+} todo_filter;
 
 
 typedef enum {
   PRIORITY_LOW = 0,
   PRIORITY_MEDIUM,
-  PRIORITY_HIGH
+  PRIORITY_HIGH,
+  PRIORITY_COUNT
 } entry_priority;
 
 
 typedef struct {
   bool completed;
   char* desc, *date;
+
   entry_priority priority;
 } task_entry;
 
 
 static int winw = 1280, winh = 720;
 static LfFont titlefont, textfont;
-static entry_filter current_filter;
+static todo_filter current_filter;
 static gui_tab current_tab;
 
 static task_entry* entries[1024];
@@ -49,15 +52,48 @@ static LfInputField new_task_input;
 static char new_task_input_buf[512];
 
 
+char* get_command_output(const char* cmd) {
+  FILE *fp;
+  char buffer[1024];
+  char* result = 0; 
+  size_t result_size = 0;
+
+
+  // Opening a new pipe with the fiven command 
+  fp = popen(cmd, "r");
+  if (fp == NULL) {
+    printf("Failed to run command\n");
+    return NULL;
+  }
+
+  // Reading the output 
+  while (fgets(buffer, sizeof(buffer), fp) != NULL) {
+    size_t buffer_len = strlen(buffer);
+    char *temp = realloc(result, result_size + buffer_len + 1);
+    if (temp == NULL) {
+      printf("Memory allocation failed\n");
+      free(result);
+      pclose(fp);
+      return NULL;
+    }
+    result = temp;
+    strcpy(result + result_size, buffer);
+    result_size += buffer_len;
+  }
+  pclose(fp);
+  return result;
+}
+
+
 static void rendertopbar() {
   lf_push_font(&titlefont);
   lf_text("Your To Do");
   lf_pop_font();
 
   {
-    const float widht = 160.0f;
+    const float width = 160.0f;
 
-    lf_set_ptr_x_absolute(winw - widht - WIN_MARGIN * 2.0f);
+    lf_set_ptr_x_absolute(winw - width - WIN_MARGIN * 2.0f);
     LfUIElementProps props = lf_get_theme().button_props;
     props.margin_left = 0.0f;
     props.margin_right = 0.0f;
@@ -66,7 +102,9 @@ static void rendertopbar() {
     props.corner_radius = 4.0f;
     lf_push_style_props(props);
     lf_set_line_should_overflow(false);
-    lf_button_fixed("New Task", 160, -1);
+    if(lf_button_fixed("New Task", width, -1) == LF_CLICKED) {
+      current_tab = TAB_NEW_TASK;
+    };
     lf_set_line_should_overflow(true);
     lf_pop_style_props();
   }
@@ -113,7 +151,7 @@ static void renderfilters() {
     props.color = (current_filter == i) ? (LfColor){255, 255, 255, 50} : LF_NO_COLOR;
     lf_push_style_props(props);
     if(lf_button(filters[i]) == LF_CLICKED) {
-      current_filter = (entry_filter)i;
+      current_filter = (todo_filter)i;
     }
     lf_pop_style_props();
   }
@@ -218,7 +256,108 @@ static void rendernewtask() {
   lf_push_font(&titlefont);
   {
     LfUIElementProps props = lf_get_theme().text_props;
+    props.margin_bottom = 15.0f;
+    lf_push_style_props(props);
+    lf_text("Add a new task");
+    lf_pop_font();
   }
+
+  lf_next_line();
+
+  {
+    lf_push_font(&textfont);
+    lf_text("Description");
+    lf_pop_font();
+
+    lf_next_line();
+    LfUIElementProps props = lf_get_theme().inputfield_props;
+    props.padding = 15.0f;
+    props.color = lf_color_from_zto((vec4s){0.05f, 0.05f, 0.05f, 1.0f});
+    props.corner_radius = 11;
+    props.text_color = LF_WHITE;  
+    props.border_width = 1.0f;
+    props.border_color = new_task_input.selected ? LF_WHITE : (LfColor){170, 170, 170, 255};
+    props.corner_radius = 2.5f;
+    props.margin_bottom = 10.f;
+    lf_push_style_props(props);
+    lf_input_text(&new_task_input);
+    lf_pop_style_props();
+  }
+
+  lf_next_line();
+
+  static int32_t selected_priority = -1;
+  {
+    lf_push_font(&textfont);
+    lf_text("Priority");
+    lf_pop_font();
+
+    lf_next_line();
+    static const char* items[3] = {
+      "Low",
+      "Medium",
+      "High"
+    };
+    static bool opened = false;
+    LfUIElementProps props = lf_get_theme().button_props;
+    props.color = (LfColor){70, 70, 70, 255};
+    props.text_color = LF_WHITE;  
+    props.border_width = 0.0f; props.corner_radius = 5.0f;
+    lf_push_style_props(props);
+    lf_dropdown_menu(items, "Priority", 3, 200, 80, &selected_priority, &opened);
+    lf_pop_style_props();
+  }
+
+  {
+    bool form_complete = (strlen(new_task_input_buf) && selected_priority != -1);
+    const char * text = "Add";
+    const float width = 150.0f;
+
+    LfUIElementProps props = lf_get_theme().button_props;
+    props.margin_left = 0.0f; props.margin_right = 0.0f; 
+    props.corner_radius = 5.0f; props.border_width = 0.0f;
+    props.color = !form_complete ? (LfColor){80, 80, 80, 255} : (LfColor){65, 177, 204, 255};
+    lf_push_style_props(props);
+    lf_set_line_should_overflow(false);
+    lf_set_ptr_x_absolute(winw - (width + props.padding * 2.0f) - WIN_MARGIN);
+    lf_set_ptr_y_absolute(winh - (lf_button_dimension(text).y + props.padding * 2.0f) - WIN_MARGIN);
+    if(lf_button_fixed(text, width, -1) == LF_CLICKED && form_complete) {
+      task_entry* entry = (task_entry*)malloc(sizeof(*entry));
+      entry->priority = selected_priority;
+      entry->completed = false;
+      entry->date = get_command_output("date +\"%d.%m.%Y, %H:%M\"");
+
+      char* new_desc = malloc(strlen(new_task_input_buf));
+      strcpy(new_desc, new_task_input_buf);
+      
+      entry->desc = new_desc;
+      entries[numentries++] = entry;
+      memset(new_task_input_buf, 0, 512);
+    }
+    lf_set_line_should_overflow(true);
+    lf_pop_style_props();
+  }
+
+  lf_next_line();
+
+  {
+    LfUIElementProps props = lf_get_theme().button_props;
+    props.color = LF_NO_COLOR; props.border_width = 0.0f;
+    props.padding = 0.0f; props.margin_left = 0.0f; props.margin_top = 0.0f;
+    props.margin_right = 0.0f; props.margin_bottom = 0.0f;
+    lf_push_style_props(props);
+    lf_set_line_should_overflow(false);
+    LfTexture backbutton = (LfTexture){.id = backtexture.id, .width = 20, .height = 40};
+    lf_set_ptr_y_absolute(winh - backbutton.height - WIN_MARGIN * 2.0f);
+    lf_set_ptr_x_absolute(WIN_MARGIN);
+
+    if(lf_image_button(backbutton) == LF_CLICKED) {
+      current_tab = TAB_DASHBOARD;
+    }
+    lf_set_line_should_overflow(true);
+    lf_pop_style_props();
+  }
+
 }
 
 
@@ -244,13 +383,18 @@ int main() {
   removetexture = lf_load_texture("./icons/remove.png", true, LF_TEX_FILTER_LINEAR);
   backtexture = lf_load_texture("./icons/back.png", true, LF_TEX_FILTER_LINEAR);
 
+
+
+  new_task_input = (LfInputField){
+    .width = 400,
+    .buf = new_task_input_buf,
+    .buf_size = 512,
+    .placeholder = "What is there to do?"
+  };
+
+
   for(uint32_t i = 0; i < 5; i++) {
-    task_entry* entry = (task_entry*)malloc(sizeof(*entry));
-    entry->priority = PRIORITY_LOW;
-    entry->completed = false;
-    entry->date = "nothing";
-    entry->desc = "Do a task manager";
-    entries[numentries++] = entry;
+    
   }
   
 
