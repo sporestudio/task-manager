@@ -1,7 +1,8 @@
 # GUI TASK MANAGEMENT APP IN C
 
 
-<img src=https://github.com/sporestudio/task-manager/tree/main/branding/todo-showcase.png alt="Todo Showcase">
+
+![image](https://github.com/sporestudio/task-manager/tree/main/branding/todo-showcase.png)
 
 
 ## Overview
