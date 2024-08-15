@@ -2,7 +2,7 @@
 
 
 
-![image](https://github.com/sporestudio/task-manager/tree/main/branding/todo-showcase.png)
+![image](https://github.com/sporestudio/task-manager/blob/main/branding/todo-showcase.png?raw=true)
 
 
 ## Overview
