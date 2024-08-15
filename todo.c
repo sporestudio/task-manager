@@ -52,6 +52,104 @@ static LfInputField new_task_input;
 static char new_task_input_buf[512];
 
 
+static void serialize_todo_entry(FILE* file, task_entry* entry) {
+  fwrite(&entry->completed, sizeof(bool), 1, file);
+
+  size_t desclen = strlen(entry->desc) + 1;
+  fwrite(&desclen, sizeof(size_t), 1, file);
+  fwrite(entry->desc, sizeof(char), desclen, file);
+
+  size_t datelen = strlen(entry->date) + 1;
+  fwrite(&datelen, sizeof(size_t), 1, file);
+  fwrite(entry->date, sizeof(char), datelen, file);
+
+  fwrite(&entry->priority, sizeof(entry_priority), 1, file);
+}
+
+
+static void serialize_todo_list(const char* filename) {
+  FILE* file = fopen(filename, "wb");
+  if(!file) {
+    printf("Failed to open data file.\n");
+    return;
+  }
+  for(uint32_t i = 0; i < numentries; i++) {
+    serialize_todo_entry(file, entries[i]);
+  }
+}
+
+
+task_entry* deserialize_todo_entry(FILE* file) {
+  task_entry* entry = (task_entry*)malloc(sizeof(*entry));
+
+  if(fread(&entry->completed, sizeof(bool), 1, file) != 1); {
+    free(entry);
+    return NULL;
+  }
+
+  size_t desclen;
+  if(fread(&desclen, sizeof(size_t), 1, file) != 1) {
+    free(entry);
+    return NULL;
+  }
+  entry->desc = malloc(desclen);
+  if(!entry->desc) {
+    free(entry);
+    return NULL;
+  }
+  if(fread(entry->desc, sizeof(char), desclen, file) != desclen) {
+    free(entry->desc);
+    free(entry);
+    return NULL;
+  }
+
+
+  size_t datelen;
+  if(fread(&datelen, sizeof(size_t), 1, file)  != 1) {
+    free(entry->desc);
+    free(entry);
+    return NULL;
+  }
+  entry->date = malloc(datelen);
+  if(!entry->date) {
+    free(entry->desc);
+    free(entry);
+    return NULL;
+  }
+  if(fread(entry->date, sizeof(char), datelen, file) != datelen) {
+    free(entry->desc);
+    free(entry->date);
+    free(entry);
+    return NULL;
+  } 
+
+  if(fread(&entry->priority, sizeof(entry_priority), 1, file) != 1) {
+    free(entry->desc);
+    free(entry->date);
+    free(entry);
+    return NULL;
+  }
+
+  return entry;
+}
+
+
+void deserialize_todo_list(const char* filename) {
+  FILE* file = fopen(filename, "rb");
+  if(!file) {
+    file = fopen(filename, "w");
+    fclose(file);
+    file = fopen(filename, "rb");
+  }
+
+  task_entry* entry;
+  while((entry = deserialize_todo_entry(file)) != NULL) {
+    entries[numentries++] = entry;
+  }
+  fclose(file);
+}
+
+
 char* get_command_output(const char* cmd) {
   FILE *fp;
   char buffer[1024];
@@ -83,6 +181,20 @@ char* get_command_output(const char* cmd) {
   pclose(fp);
   return result;
 }
+
+
+static int compare_entry_priority(const void* a, const void* b) {
+  task_entry* entry_a = *(task_entry**)a;
+  task_entry* entry_b = *(task_entry**)b;
+  return (entry_b->priority - entry_a->priority); 
+}
+
+
+
+static void sort_entries_by_priority() {
+  qsort(entries, numentries, sizeof(task_entry*), compare_entry_priority);
+}
+
 
 
 static void rendertopbar() {
@@ -179,8 +291,21 @@ static void renderentries() {
     float priority_size = 15.0f;
     float ptry_before = lf_get_ptr_y();
 
-    lf_set_ptr_y_absolute(lf_get_ptr_y() + priority_size);
+    lf_set_ptr_y_absolute(lf_get_ptr_y() + priority_size - 12.0f);
     lf_set_ptr_x_absolute(lf_get_ptr_x() + 5.0f);
+
+    bool clicked_priority = lf_hovered((vec2s){lf_get_ptr_y(), lf_get_ptr_x()}, (vec2s){priority_size, priority_size})
+      && lf_mouse_button_went_down(GLFW_MOUSE_BUTTON_LEFT);
+    
+    if(clicked_priority) {
+      printf("Clicked\n");
+      if(entry->priority + 1 >= PRIORITY_HIGH + 1) {
+        entry->priority = 0;
+      } else {
+        entry->priority++;
+      }
+      sort_entries_by_priority();
+    }
     switch(entry->priority) {
       case PRIORITY_LOW: {
         lf_rect(priority_size, priority_size, (LfColor){76, 175, 80, 255}, 4.0f);
@@ -207,6 +332,7 @@ static void renderentries() {
           entries[j] = entries[j + 1];
         }
         numentries--;
+        serialize_todo_list("./tododata.bin");
       }
       lf_pop_style_props(); 
     }
@@ -217,7 +343,7 @@ static void renderentries() {
       props.color = lf_color_from_zto((vec4s){0.05f, 0.05f, 0.05f, 1.0f});
       lf_push_style_props(props);
       if(lf_checkbox("", &entry->completed, LF_NO_COLOR, ((LfColor){65, 167, 204, 255})) == LF_CLICKED) {
-        
+        serialize_todo_list("./tododata.bin");
       }
       lf_pop_style_props();
     }
@@ -333,6 +459,8 @@ static void rendernewtask() {
       entry->desc = new_desc;
       entries[numentries++] = entry;
       memset(new_task_input_buf, 0, 512);
+      sort_entries_by_priority();
+      serialize_todo_list("./tododata.bin");
     }
     lf_set_line_should_overflow(true);
     lf_pop_style_props();
@@ -378,13 +506,13 @@ int main() {
 
 
   titlefont = lf_load_font("./fonts/redhat/RedHatText-Bold.ttf", 40);
-  textfont = lf_load_font("./fonts/redhat/RedHatText-Regular.ttf", 20);
+  textfont = lf_load_font("./fonts/redhat/RedHatText-Medium.ttf", 20);
 
   removetexture = lf_load_texture("./icons/remove.png", true, LF_TEX_FILTER_LINEAR);
   backtexture = lf_load_texture("./icons/back.png", true, LF_TEX_FILTER_LINEAR);
 
 
-
+  
   new_task_input = (LfInputField){
     .width = 400,
     .buf = new_task_input_buf,
@@ -397,6 +525,7 @@ int main() {
     
   }
   
+  deserialize_todo_list("./tododata.bin");
 
   while(!glfwWindowShouldClose(window)) {
     glClear(GL_COLOR_BUFFER_BIT);
