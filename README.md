@@ -1,6 +1,17 @@
 # GUI TASK MANAGEMENT APP IN C
 
+
+<img src=https://github.com/sporestudio/task-manager/tree/main/branding/todo-showcase.png alt="Todo Showcase">
+
+
+## Overview
 *todo* is a GUI task management utility that manages and stores your tasks.
 
 
-:warning: The app is under development. Keep your expectations low.
+It supports serialization & deserialization of tasks. Furthmore, the app implements a priority system for your tasks and the displayed tasks are sorted from high to low priority.
+There is also a filtering system that filters tasks after different critia (eg. completed, high priority,in progress).
+
+
+## UI
+
+The UI of the applicaton is written entirely with the [leif](https://github.com/cococry/leif) UI library which is a small immediate mode UI framework written by [cococry](https://github.com/cococry).
